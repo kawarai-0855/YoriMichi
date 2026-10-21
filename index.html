@@ -80,8 +80,10 @@
           <select id="capSel"><option>3</option><option selected>5</option><option>10</option></select>
         </label>
         <button id="notifPermBtn" class="btn small">🔔 端末通知を許可</button>
+        <button id="voiceBtn" class="btn small" type="button" aria-pressed="false">🔊 音声案内：オフ</button>
         <button id="resetDayBtn" class="btn small">今日の回数をリセット</button>
       </div>
+      <p class="hint" id="voiceHint">音声案内はオフです。オンにすると、通知を日本語で読み上げます。</p>
 
       <details class="howto">
         <summary>通知ルール（移動手段ごと）</summary>
@@ -107,7 +109,7 @@
       <div id="history" class="history"><p class="empty">まだ通知はありません。</p></div>
     </div>
 
-    <footer class="foot">※ スポットは<b>サンプルデータ</b>です。「（サンプル）」付きの名称・説明は架空で、実在の店舗・営業情報ではありません。ルートは概略です。地図 © OpenStreetMap contributors</footer>
+    <footer class="foot">スポット情報は OpenStreetMap の公開データです（<a href="https://www.openstreetmap.org/copyright">© OpenStreetMap contributors</a> / ODbL）。ルートは概略です。地図 © OpenStreetMap contributors</footer>
   </section>
 </main>
 
