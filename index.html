@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0f766e">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>📍</text></svg>">
+<title>ヨリミチAI（デモ）</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header class="appbar">
+  <div class="brand"><span class="logo">📍</span><div><h1>ヨリミチAI</h1><small>移動中のおすすめ通知・コンセプトデモ</small></div></div>
+  <span class="demo-tag">DEMO</span>
+</header>
+
+<main>
+  <section class="map-wrap">
+    <div id="map"></div>
+    <div id="toasts" aria-live="polite"></div>
+    <div class="map-status">
+      <span id="modeBadge" class="badge mode-none">⏸ 停止中</span>
+      <span id="speedLbl" class="pill">0 km/h</span>
+    </div>
+  </section>
+
+  <section class="sheet">
+    <div class="tabs" role="tablist">
+      <button class="tab active" data-tab="ctrl">操作</button>
+      <button class="tab" data-tab="prefs">興味・AI学習</button>
+      <button class="tab" data-tab="hist">通知履歴 <span id="histCount" class="count">0</span></button>
+    </div>
+
+    <div class="panel active" id="panel-ctrl">
+      <div class="seg" id="srcSeg">
+        <button class="seg-btn active" data-src="sim">🎮 シミュレーション</button>
+        <button class="seg-btn" data-src="gps">📡 実際のGPS</button>
+      </div>
+
+      <div id="simCtrls">
+        <label class="field">ルート
+          <select id="routeSel">
+            <option value="walk">🚶 徒歩：浅草 → 上野</option>
+            <option value="train">🚃 電車：山手線 東京 → 田端</option>
+            <option value="car">🚗 車：新宿 → 道の駅 八王子滝山</option>
+          </select>
+        </label>
+        <div class="row">
+          <button id="playBtn" class="btn primary">▶ 再生</button>
+          <button id="resetRouteBtn" class="btn">⟲ 最初から</button>
+          <label class="field inline">速度
+            <select id="speedSel">
+              <option value="10">10倍</option>
+              <option value="30" selected>30倍</option>
+              <option value="60">60倍</option>
+              <option value="120">120倍</option>
+            </select>
+          </label>
+        </div>
+        <div class="progress"><div id="progressBar"></div></div>
+        <p class="hint" id="simInfo">ルートを選んで再生すると、点が移動して通知が届きます。</p>
+      </div>
+
+      <div id="gpsCtrls" hidden>
+        <div class="row">
+          <button id="gpsBtn" class="btn primary">📡 位置情報の取得を開始</button>
+        </div>
+        <p class="hint" id="gpsInfo">ブラウザの位置情報を使います（HTTPS または localhost が必要）。アプリを閉じると追跡は止まります。</p>
+      </div>
+
+      <div class="stats">
+        <div><b id="statCount">0 / 5</b><span>今日の通知</span></div>
+        <div><b id="statSkip">0</b><span>AIが見送った候補</span></div>
+        <div><b id="statCool">—</b><span>次の通知まで</span></div>
+      </div>
+
+      <div class="row">
+        <label class="field inline">1日の上限
+          <select id="capSel"><option>3</option><option selected>5</option><option>10</option></select>
+        </label>
+        <button id="notifPermBtn" class="btn small">🔔 端末通知を許可</button>
+        <button id="resetDayBtn" class="btn small">今日の回数をリセット</button>
+      </div>
+
+      <details class="howto">
+        <summary>通知ルール（移動手段ごと）</summary>
+        <ul>
+          <li>🚶 <b>徒歩</b>：今いる場所から約300m以内のスポット</li>
+          <li>🚃 <b>電車</b>：<b>次の駅</b>の周辺で「降りる価値あり」のスポット</li>
+          <li>🚗 <b>車</b>：ルート上の<b>約10〜15分先</b>で寄れるスポット</li>
+          <li>🤖 AIスコア（興味×学習）が基準以上のものだけ／1日の上限／通知の間隔（クールダウン）で、うるさくならないよう調整</li>
+        </ul>
+        <p class="hint">移動手段は速度と線路・駅への近さからの<b>推定</b>です。</p>
+      </details>
+    </div>
+
+    <div class="panel" id="panel-prefs">
+      <p class="hint">興味のあるジャンルを選んでください。通知の「興味なし」を押すと、そのジャンルの優先度が下がります（AI学習のデモ）。</p>
+      <div id="chips" class="chips"></div>
+      <h3>AIの学習状態（ジャンル別の重み）</h3>
+      <div id="weights" class="weights"></div>
+      <button id="resetLearnBtn" class="btn small">学習をリセット</button>
+    </div>
+
+    <div class="panel" id="panel-hist">
+      <div id="history" class="history"><p class="empty">まだ通知はありません。</p></div>
+    </div>
+
+    <footer class="foot">※ スポットは<b>サンプルデータ</b>です。「（サンプル）」付きの名称・説明は架空で、実在の店舗・営業情報ではありません。ルートは概略です。地図 © OpenStreetMap contributors</footer>
+  </section>
+</main>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
+<script src="data.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
