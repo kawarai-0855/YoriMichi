@@ -63,6 +63,7 @@ function project(line, p) {
 const RAIL = makeLine(STATIONS.map(s => [s.lat, s.lng]));
 const STATION_ALONG = STATIONS.map(s => project(RAIL, [s.lat, s.lng]).along);
 const fmtMin = s => s < 60 ? `${Math.round(s)}秒` : `${Math.round(s/60)}分`;
+const esc = s => String(s ?? '').replace(/[&<>"']/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]));
 
 // ---------- 地図 ----------
 const map = L.map('map', { zoomControl: false }).setView([35.712, 139.785], 14);
@@ -80,7 +81,7 @@ SPOTS.forEach((sp, i) => {
   sp.id = i;
   const c = CATS[sp.cat];
   const m = L.marker([sp.lat, sp.lng], { icon: L.divIcon({ className: '', html: `<div class="spot-ico" id="spot-${i}">${c.icon}</div>`, iconSize: [28,28], iconAnchor: [14,14] }) })
-    .bindPopup(`<b>${sp.name}</b><br><small>${c.label}・サンプルデータ</small><br>${sp.desc}`).addTo(map);
+    .bindPopup(`<b>${esc(sp.name)}</b><br><small>${c.label}</small><br>${esc(sp.desc)}<br><small>© OpenStreetMap contributors</small>`).addTo(map);
   spotMarkers.set(i, m);
 });
 const me = L.marker([35.7111, 139.7964], { icon: L.divIcon({ className: '', html: '<div class="me"></div>', iconSize: [20,20], iconAnchor: [10,10] }), zIndexOffset: 1000 });
@@ -219,19 +220,75 @@ function drawAhead(line, a1, a2) {
   if (pts.length > 1) aheadLayer = L.polyline(pts, { color: '#ea580c', weight: 10, opacity: .35 }).addTo(map);
 }
 
+// ---------- 音声案内（Web Speech API。既定はオフ） ----------
+let voiceOn = false;
+let voiceNoJaNoted = false;
+function setVoiceHint(msg) {
+  const el = document.getElementById('voiceHint');
+  if (el && msg) el.textContent = msg;
+}
+function jaVoice() {
+  if (!window.speechSynthesis) return null;
+  let list = [];
+  try { list = speechSynthesis.getVoices() || []; } catch { list = []; }
+  return list.find(v => /^ja([-_]JP)?$/i.test(v.lang)) || list.find(v => /^ja/i.test(v.lang)) || null;
+}
+function speak(text) {
+  if (!text) return false;
+  if (!window.speechSynthesis || typeof SpeechSynthesisUtterance !== 'function') {
+    setVoiceHint('このブラウザは音声読み上げに対応していません。');
+    return false;
+  }
+  try {
+    const u = new SpeechSynthesisUtterance(text);
+    u.lang = 'ja-JP';
+    u.rate = 1.02;
+    const v = jaVoice();
+    if (v) u.voice = v;
+    else if (!voiceNoJaNoted) {
+      voiceNoJaNoted = true;
+      setVoiceHint('日本語の音声が見つかりません。端末の音声設定を確認してください。読み上げは既定の声で試みます。');
+    }
+    speechSynthesis.cancel();
+    speechSynthesis.speak(u);
+    return true;
+  } catch {
+    setVoiceHint('音声の再生に失敗しました。');
+    return false;
+  }
+}
+function guideText(name, cat, reason, ctx) {
+  const label = (CATS[cat] && CATS[cat].label) || '';
+  let where = reason;
+  let m;
+  if (ctx === '徒歩' && (m = String(reason).match(/徒歩(\d+)分（約(\d+)m）/))) where = `徒歩およそ${m[1]}分、約${m[2]}メートルです`;
+  else if (ctx === '電車' && (m = String(reason).match(/次の駅「(.+?)」で降りる価値あり・駅から徒歩(\d+)分/))) where = `次の駅、${m[1]}。駅から徒歩およそ${m[2]}分です`;
+  else if (ctx === '車' && (m = String(reason).match(/約(\d+)分先・ルートから([\d.]+)km/))) where = `およそ${m[1]}分先、ルートから${m[2]}キロです`;
+  return `${label}、${name}。${where}。`;
+}
+function refreshVoiceBtn() {
+  const b = document.getElementById('voiceBtn');
+  if (!b) return;
+  b.textContent = voiceOn ? '🔊 音声案内：オン' : '🔊 音声案内：オフ';
+  b.setAttribute('aria-pressed', voiceOn ? 'true' : 'false');
+}
+
 // ---------- 通知表示 ----------
 function notify(sp, score, reason, ctx) {
   const c = CATS[sp.cat];
-  const item = { id: sp.id, name: sp.name, cat: sp.cat, score, reason, ctx, at: new Date().toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' }), state: '未対応' };
+  const guide = guideText(sp.name, sp.cat, reason, ctx);
+  const item = { id: sp.id, name: sp.name, cat: sp.cat, score, reason, ctx, guide, at: new Date().toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' }), state: '未対応' };
   S.history.unshift(item); S.history = S.history.slice(0, 50); save();
   const el = document.createElement('div');
   el.className = 'toast';
   el.style.borderLeftColor = c.color;
-  el.innerHTML = `<div class="t-head"><span>${c.icon} ${c.label}・${ctx}中のおすすめ</span><span class="score">AIマッチ ${Math.round(score * 100)}%</span></div>
-    <div class="t-title">${sp.name}</div><div class="t-reason">${reason}</div><div class="t-desc">${sp.desc}</div>
-    <div class="t-btns"><button class="btn primary" data-act="go">行ってみる</button><button class="btn ghost" data-act="no">興味なし</button></div>`;
+  el.innerHTML = `<div class="t-head"><span>${c.icon} ${esc(c.label)}・${esc(ctx)}中のおすすめ</span><span class="score">AIマッチ ${Math.round(score * 100)}%</span></div>
+    <div class="t-title">${esc(sp.name)}</div><div class="t-reason">${esc(reason)}</div><div class="t-desc">${esc(sp.desc)}</div>
+    <div class="t-btns"><button class="btn primary" data-act="go">行ってみる</button><button class="btn ghost" data-act="replay">🔊 読み上げ</button><button class="btn ghost" data-act="no">興味なし</button></div>`;
   el.querySelector('[data-act=go]').onclick = () => { feedback(item, true); el.remove(); };
   el.querySelector('[data-act=no]').onclick = () => { feedback(item, false); el.remove(); };
+  el.querySelector('[data-act=replay]').onclick = () => speak(guide);
+  if (voiceOn) speak(guide);
   const box = document.getElementById('toasts');
   box.prepend(el);
   while (box.children.length > 2) box.lastChild.remove();
@@ -285,8 +342,14 @@ function renderHistory() {
   const box = document.getElementById('history');
   document.getElementById('histCount').textContent = S.history.length;
   if (!S.history.length) { box.innerHTML = '<p class="empty">まだ通知はありません。</p>'; return; }
-  box.innerHTML = S.history.map((h, i) => `<div class="h-item" data-i="${i}"><div class="h-ico">${CATS[h.cat].icon}</div><div class="h-main"><div class="h-title">${h.name}</div><div class="h-sub">${h.at}・${h.ctx}・${h.reason}</div></div><span class="h-state">${h.state}</span></div>`).join('');
+  box.innerHTML = S.history.map((h, i) => `<div class="h-item" data-i="${i}"><div class="h-ico">${CATS[h.cat].icon}</div><div class="h-main"><div class="h-title">${esc(h.name)}</div><div class="h-sub">${esc(h.at)}・${esc(h.ctx)}・${esc(h.reason)}</div></div><button class="btn small h-replay" type="button" data-i="${i}">🔊 読み上げ</button><span class="h-state">${esc(h.state)}</span></div>`).join('');
   box.querySelectorAll('.h-item').forEach(el => el.onclick = () => { const h = S.history[+el.dataset.i]; const m = spotMarkers.get(h.id); if (m) { map.setView(m.getLatLng(), 16); m.openPopup(); } });
+  box.querySelectorAll('.h-replay').forEach(btn => btn.onclick = ev => {
+    ev.stopPropagation();
+    const h = S.history[+btn.dataset.i];
+    if (!h) return;
+    speak(h.guide || guideText(h.name, h.cat, h.reason, h.ctx));
+  });
 }
 
 // ---------- シミュレーション ----------
@@ -372,7 +435,7 @@ function startGps() {
     me.setLatLng(p); trail.addLatLng(p);
     if (first) { map.setView(p, 15); first = false; }
     evaluate(p, now); renderStats(now);
-    info.textContent = `取得中：精度 約${Math.round(pos.coords.accuracy)}m。サンプルスポットは東京（浅草・上野・山手線・新宿〜八王子）にしかありません。`;
+    info.textContent = `取得中：精度 約${Math.round(pos.coords.accuracy)}m。収録スポットは浅草・上野、山手線の東京〜田端、新宿〜八王子滝山の周辺です。`;
   }, err => { info.textContent = '位置情報を取得できませんでした：' + err.message; stopGps(); },
   { enableHighAccuracy: true, maximumAge: 5000, timeout: 20000 });
   document.getElementById('gpsBtn').textContent = '⏹ 取得を停止';
@@ -402,6 +465,36 @@ document.getElementById('gpsBtn').onclick = () => watchId != null ? stopGps() : 
 document.getElementById('capSel').value = String(S.cap);
 document.getElementById('capSel').onchange = e => { S.cap = +e.target.value; save(); renderStats(); };
 document.getElementById('resetDayBtn').onclick = () => { S.count = 0; lastNotifyAt = -Infinity; save(); renderStats(); smallToast('今日の通知回数をリセットしました'); };
+document.getElementById('voiceBtn').onclick = () => {
+  if (!window.speechSynthesis || typeof SpeechSynthesisUtterance !== 'function') {
+    voiceOn = false;
+    refreshVoiceBtn();
+    setVoiceHint('このブラウザは音声読み上げに対応していません。');
+    return;
+  }
+  voiceOn = !voiceOn;
+  refreshVoiceBtn();
+  if (!voiceOn) {
+    try { speechSynthesis.cancel(); } catch {}
+    setVoiceHint('音声案内はオフです。オンにすると、通知を日本語で読み上げます。');
+    return;
+  }
+  let said = false;
+  const sayTest = () => {
+    if (said || !voiceOn) return;
+    said = true;
+    const v = jaVoice();
+    speak(v ? '音声案内をオンにしました。通知が届くと読み上げます。' : '音声案内をオンにしました。日本語の音声が見つからないため、うまく読めないことがあります。');
+    if (v) setVoiceHint('音声案内はオンです。通知が届くと読み上げます。');
+  };
+  try {
+    if (speechSynthesis.getVoices().length) sayTest();
+    else {
+      speechSynthesis.addEventListener('voiceschanged', sayTest, { once: true });
+      setTimeout(sayTest, 400);
+    }
+  } catch { sayTest(); }
+};
 document.getElementById('resetLearnBtn').onclick = () => { S.weights = defaultState().weights; save(); renderWeights(); smallToast('学習をリセットしました'); };
 const permBtn = document.getElementById('notifPermBtn');
 if (!('Notification' in window)) permBtn.hidden = true;
